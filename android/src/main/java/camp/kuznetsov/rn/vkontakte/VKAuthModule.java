@@ -4,13 +4,27 @@ package camp.kuznetsov.rn.vkontakte;
 import android.app.Activity;
 import android.content.Intent;
 import android.util.Log;
+
 import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.vk.sdk.*;
+import com.vk.sdk.api.VKApi;
+import com.vk.sdk.api.VKApiConst;
 import com.vk.sdk.api.VKError;
+import com.vk.sdk.api.VKParameters;
+import com.vk.sdk.api.VKRequest;
+import com.vk.sdk.api.VKResponse;
+import com.vk.sdk.api.methods.VKApiFriends;
+import com.vk.sdk.api.model.VKApiUser;
+import com.vk.sdk.api.model.VKApiUserFull;
+import com.vk.sdk.api.model.VKList;
+import com.vk.sdk.api.model.VKUsersArray;
 import com.vk.sdk.util.VKUtil;
 
+import org.json.JSONObject;
+
 import javax.annotation.Nullable;
+
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,7 +45,8 @@ public class VKAuthModule extends ReactContextBaseJavaModule implements Activity
     private boolean isInitialized = false;
 
     @Override
-    public void onNewIntent(Intent intent) {}
+    public void onNewIntent(Intent intent) {
+    }
 
     public VKAuthModule(final ReactApplicationContext reactContext) {
         super(reactContext);
@@ -51,7 +66,8 @@ public class VKAuthModule extends ReactContextBaseJavaModule implements Activity
         int resId = reactContext.getResources().getIdentifier(VKSdk.SDK_APP_ID, "integer", reactContext.getPackageName());
         try {
             appId = reactContext.getResources().getInteger(resId);
-        } catch (Exception e) { }
+        } catch (Exception e) {
+        }
         Log.d(LOG, "VK AppID found in resources: " + appId);
         if (appId != 0) {
             VKSdk.customInitialize(reactContext, appId, VK_API_VERSION);
@@ -73,13 +89,12 @@ public class VKAuthModule extends ReactContextBaseJavaModule implements Activity
     }
 
     @ReactMethod
-    public void initialize(final Integer appId){
+    public void initialize(final Integer appId) {
         Log.d(LOG, "Inititalizing " + appId);
         if (appId != 0) {
             VKSdk.customInitialize(getReactApplicationContext(), appId, VK_API_VERSION);
             isInitialized = true;
-        }
-        else {
+        } else {
             throw new JSApplicationIllegalArgumentException("VK App Id cannot be 0");
         }
     }
@@ -107,7 +122,8 @@ public class VKAuthModule extends ReactContextBaseJavaModule implements Activity
             boolean hasScope = false;
             try {
                 hasScope = VKAccessToken.currentToken().hasScope(scopeArray);
-            } catch (Exception e) { }
+            } catch (Exception e) {
+            }
 
             if (hasScope) {
                 Log.d(LOG, "Already logged in with all requested scopes");
@@ -132,11 +148,37 @@ public class VKAuthModule extends ReactContextBaseJavaModule implements Activity
     }
 
     @ReactMethod
+    public void getFriends(String token, final Promise promise) {
+        if (!isInitialized) {
+            promise.reject(E_NOT_INITIALIZED, M_NOT_INITIALIZED);
+            return;
+        }
+
+        final VKRequest request = VKApi.friends().get(VKParameters.from(VKApiConst.ACCESS_TOKEN, token, VKApiConst.FIELDS, "photo_50"));
+        request.executeWithListener(new VKRequest.VKRequestListener() {
+            @Override
+            public void onComplete(VKResponse response) {
+                super.onComplete(response);
+                try {
+                    promise.resolve(makeUserFriendsResponse((VKList<VKApiUserFull>)response.parsedModel));
+                } catch (Exception e) {
+                    promise.reject(E_VKSDK_ERROR, e.toString());
+                }
+            }
+
+            @Override
+            public void onError(VKError error) {
+                super.onError(error);
+                promise.reject(E_VKSDK_ERROR, error.toString());
+            }
+        });
+    }
+
+    @ReactMethod
     public void isLoggedIn(Promise promise) {
         if (isInitialized) {
             promise.resolve(VKSdk.isLoggedIn());
-        }
-        else {
+        } else {
             promise.reject(E_NOT_INITIALIZED, M_NOT_INITIALIZED);
         }
     }
@@ -175,7 +217,23 @@ public class VKAuthModule extends ReactContextBaseJavaModule implements Activity
 
     }
 
-    private WritableMap makeLoginResponse(VKAccessToken token){
+    private WritableArray makeUserFriendsResponse(VKList<VKApiUserFull> users) {
+        WritableArray friends = Arguments.createArray();
+
+        for (VKApiUserFull user : users) {
+            WritableMap friend = Arguments.createMap();
+            friend.putString("id", Integer.toString(user.id));
+            friend.putString("first_name", user.first_name);
+            friend.putString("last_name", user.last_name);
+            friend.putString("photo_50", user.photo_50);
+
+            friends.pushMap(friend);
+        }
+
+        return friends;
+    }
+
+    private WritableMap makeLoginResponse(VKAccessToken token) {
         WritableMap result = Arguments.createMap();
 
         result.putString(VKAccessToken.ACCESS_TOKEN, token.accessToken);
